@@ -91,9 +91,10 @@ if minwh != opt.mindim:
    scale = opt.mindim / minwh
 t_w = round(v_w*scale/16.)*16
 t_h = round(v_h*scale/16.)*16
-fps = cap.get(cv2.CAP_PROP_FPS)
+fps = cap.get(cv2.CAP_PROP_FPS) or 50
 pbar = tqdm(total=nframes)
 block = 5
+
 
 # Process 
 with torch.no_grad():
@@ -133,6 +134,9 @@ with torch.no_grad():
          if nchannels==3 and opt.disable_colorization:
             gtC = frame_ab if i==0 else torch.cat( (gtC, frame_ab), 2 )
       
+      pad_start = input[:, :, :1, :, :].expand(-1, -1, 2, -1, -1)
+      pad_end = input[:, :, -1:, :, :].expand(-1, -1, 2, -1, -1)
+      input = torch.cat( [pad_start, input, pad_end], dim=2 )
       input = input.to( device )
 
       # Perform restoration
@@ -143,13 +147,13 @@ with torch.no_grad():
          for i in range( proc_g ):
             index = frame_pos + i
             if nchannels==3:
-               out_l = output_l.detach()[0,:,i].cpu()
+               out_l = output_l.detach()[0,:,i+2].cpu()
                out_ab = gtC[0,:,i].cpu()
                out = torch.cat((out_l, out_ab),dim=0).detach().numpy().transpose((1, 2, 0))
                out = Image.fromarray( np.uint8( utils.convertLAB2RGB( out )*255 ) )
                out.save( outputdir_out+'%07d.png'%(index) )
             else:
-               save_image( output_l.detach()[0,:,i], outputdir_out+'%07d.png'%(index), nrow=1 )
+               save_image( output_l.detach()[0,:,i+2], outputdir_out+'%07d.png'%(index), nrow=1 )
       # Perform colorization
       else:
          if opt.reference_dir=='none':
@@ -162,8 +166,8 @@ with torch.no_grad():
          # Save output frames of restoration with colorization
          for i in range( proc_g ):
             index = frame_pos + i
-            out_l = output_l[0,:,i,:,:]
-            out_c = output_ab[0,:,i,:,:]
+            out_l = output_l[0,:,i+2,:,:]
+            out_c = output_ab[0,:,i+2,:,:]
             output = torch.cat((out_l, out_c), dim=0).numpy().transpose((1, 2, 0))
             output = Image.fromarray( np.uint8( utils.convertLAB2RGB( output )*255 ) )
             output.save( outputdir_out+'%07d.png'%index )
@@ -173,12 +177,12 @@ with torch.no_grad():
    
    # Save result videos
    outfile = opt.input.split('/')[-1].split('.')[0]
-   cmd = 'ffmpeg -y -r %d -i %s%%07d.png -vcodec libx264 -pix_fmt yuv420p -r %d %s_in.mp4' % (fps, outputdir_in, fps, outfile )
-   subprocess.call( cmd, shell=True )
+   #cmd = 'ffmpeg -y -r %d -i %s%%07d.png -vcodec libx264 -pix_fmt yuv420p -r %d %s_in.mp4' % (fps, outputdir_in, fps, outfile )
+   #subprocess.call( cmd, shell=True )
    cmd = 'ffmpeg -y -r %d -i %s%%07d.png -vcodec libx264 -pix_fmt yuv420p -r %d %s_out.mp4' % (fps, outputdir_out, fps, outfile )
    subprocess.call( cmd, shell=True )
-   cmd = 'ffmpeg -y -i %s_in.mp4 -vf "[in] pad=2.01*iw:ih [left];movie=%s_out.mp4[right];[left][right] overlay=main_w/2:0,scale=2*iw/2:2*ih/2[out]" %s_comp.mp4' % ( outfile, outfile, outfile )
-   subprocess.call( cmd, shell=True )
+   #cmd = 'ffmpeg -y -i %s_in.mp4 -vf "[in] pad=2.01*iw:ih [left];movie=%s_out.mp4[right];[left][right] overlay=main_w/2:0,scale=2*iw/2:2*ih/2[out]" %s_comp.mp4' % ( outfile, outfile, outfile )
+   #subprocess.call( cmd, shell=True )
 
    import shutil
    shutil.rmtree(outputdir)
