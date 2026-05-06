@@ -83,6 +83,7 @@ if not opt.disable_colorization:
 # Load video
 cap = cv2.VideoCapture( opt.input )
 nframes = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) # cv2.CAP_PROP_FRAME_COUNT: 7
+virtual_nframes = nframes + 4  # 2 padding frames at start, 2 at end
 v_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
 v_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
 minwh = min(v_w,v_h)
@@ -92,7 +93,7 @@ if minwh != opt.mindim:
 t_w = round(v_w*scale/16.)*16
 t_h = round(v_h*scale/16.)*16
 fps = 50 # cap.get(cv2.CAP_PROP_FPS)
-pbar = tqdm(total=nframes)
+pbar = tqdm(total=virtual_nframes)
 block = 5
 
 
@@ -101,11 +102,10 @@ with torch.no_grad():
    it = 0
    while True:
       frame_pos = it*block
-      if frame_pos >= nframes:
+      if frame_pos >= virtual_nframes:
          break
-      cap.set(cv2.CAP_PROP_POS_FRAMES, frame_pos)
-      if block >= nframes-frame_pos:
-         proc_g = nframes-frame_pos
+      if block >= virtual_nframes-frame_pos:
+         proc_g = virtual_nframes-frame_pos
       else:
          proc_g = block
 
@@ -113,6 +113,8 @@ with torch.no_grad():
       gtC = None
       for i in range(proc_g):
          index = frame_pos + i
+         real_frame_index = max(0, min(index - 2, nframes - 1))
+         cap.set(cv2.CAP_PROP_POS_FRAMES, real_frame_index)
          _, frame = cap.read()
          frame = cv2.resize(frame, (t_w, t_h))
          nchannels = frame.shape[2]
@@ -172,6 +174,14 @@ with torch.no_grad():
       it = it + 1
       pbar.update(proc_g)
    
+   # Remove padding frames and renumber output frames
+   for pad_idx in [0, 1, nframes+2, nframes+3]:
+      pad_file = outputdir_out + '%07d.png' % pad_idx
+      if os.path.exists(pad_file):
+         os.remove(pad_file)
+   for i in range(nframes):
+      os.rename(outputdir_out + '%07d.png' % (i+2), outputdir_out + '%07d.png' % i)
+
    # Save result videos
    outfile = opt.input.split('/')[-1].split('.')[0]
    #cmd = 'ffmpeg -y -r %d -i %s%%07d.png -vcodec libx264 -pix_fmt yuv420p -r %d %s_in.mp4' % (fps, outputdir_in, fps, outfile )
